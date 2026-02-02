@@ -1,13 +1,21 @@
 function Get-ADSHCADCSTemplates {
     [CmdletBinding()]
-    param()
+    param(
+        [string] $Server
+    )
 
     $rootDN      = (Get-ADRootDSE).configurationNamingContext
     $templatesDn = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$rootDN"
 
-    $templates = Get-ADObject -SearchBase $templatesDn `
-                              -LDAPFilter '(objectClass=pKICertificateTemplate)' `
-                              -Properties * -ErrorAction SilentlyContinue
+    $adParams = @{
+        SearchBase  = $templatesDn
+        LDAPFilter  = '(objectClass=pKICertificateTemplate)'
+        Properties  = '*'
+        ErrorAction = 'SilentlyContinue'
+    }
+    if ($Server) { $adParams['Server'] = $Server }
+
+    $templates = Get-ADObject @adParams
 
     $data = foreach ($t in $templates) {
         [PSCustomObject]@{
@@ -32,14 +40,22 @@ function Get-ADSHCADCSTemplates {
 
 function Get-ADSHCADCSCAs {
     [CmdletBinding()]
-    param()
+    param(
+        [string] $Server
+    )
 
     $rootDN = (Get-ADRootDSE).configurationNamingContext
     $caDn   = "CN=Certification Authorities,CN=Public Key Services,CN=Services,$rootDN"
 
-    $cas = Get-ADObject -SearchBase $caDn `
-                         -LDAPFilter '(objectClass=pKIEnrollmentService)' `
-                         -Properties * -ErrorAction SilentlyContinue
+    $adParams = @{
+        SearchBase  = $caDn
+        LDAPFilter  = '(objectClass=pKIEnrollmentService)'
+        Properties  = '*'
+        ErrorAction = 'SilentlyContinue'
+    }
+    if ($Server) { $adParams['Server'] = $Server }
+
+    $cas = Get-ADObject @adParams
 
     $data = foreach ($ca in $cas) {
         [PSCustomObject]@{
