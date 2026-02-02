@@ -72,13 +72,33 @@ Clone or download the repository into one of your PowerShell module paths (e.g. 
 Import-Module ADSecurityHealthCheck
 ```
 
-Make sure the required modules are available on the system where you run the checks:
+### Prerequisites
+
+Required modules and features (install on the machine running the checks):
+
+- **ActiveDirectory** (RSAT AD PowerShell)
+- **GroupPolicy** (RSAT Group Policy Management)
+- **DnsServer** (RSAT DNS Server tools) — required only for DNS checks
+
+Recommended platform permissions:
+
+- Read access to AD objects and SYSVOL.
+- For **Domain Controller** checks: local admin or delegated rights to query services/CIM and remote registry on DCs.
+- For **Secure channel** and service checks: PowerShell remoting (WinRM) enabled from the running host to DCs.
+
+Example installs:
 
 ```powershell
-Install-WindowsFeature RSAT-AD-PowerShell
+# Windows Server
+Install-WindowsFeature RSAT-AD-PowerShell, RSAT-GroupPolicy-Management, RSAT-DNS-Server
+
+# Windows 10/11 (RSAT)
+Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0
+Add-WindowsCapability -Online -Name Rsat.GroupPolicy.Management.Tools~~~~0.0.1.0
+Add-WindowsCapability -Online -Name Rsat.Dns.Tools~~~~0.0.1.0
+
 Import-Module ActiveDirectory
 Import-Module GroupPolicy
-# For DNS checks, on a DNS server or management host:
 Import-Module DnsServer
 ```
 
@@ -144,11 +164,12 @@ $results = Get-ADSecurityHealthCheck -Domain contoso.com
 **Purpose:**  
 Runs checks related to account security posture, such as (from `Private/AD-AccountChecks.ps1`):
 
-- Accounts with weak or insecure settings.
-- Unix‑style password attributes, if schema supports them:
-  - `msSFU30Password`, `userPassword`, etc.
+- Accounts with weak or insecure settings (password never expires, no pre‑auth, reversible encryption, DES, etc.).
+- Unix‑style password attributes, if schema supports them (`msSFU30Password`, `userPassword`).
 - Service accounts and accounts with SPNs.
-- Other account hygiene items (password age, delegation flags, admin accounts, etc.).
+- Computer account hygiene (stale computers, computer password age, cluster password age, LAPS coverage).
+- Password age distributions and privileged account last logon/last set distributions.
+- Smartcard coverage summary across enabled users.
 
 **Example:**
 
@@ -176,9 +197,12 @@ $results = Get-ADPrivilegedGroupCheck -Domain contoso.com
 **Purpose:**  
 Performs health and configuration checks for domain controllers, such as:
 
-- DC OS versions & patch levels.
-- FSMO role holders.
-- Insecure DC settings (e.g. weak LDAP signing, SMBv1, etc., depending on implementation).
+- DC inventory and configuration details (OS, roles, GC/RODC status).
+- Insecure DC settings (SMBv1, spooler, WebClient, LDAP signing registry checks).
+- SYSVOL/DFSR health and SYSVOL share presence.
+- Time service status.
+- Secure channel validation.
+- Unsupported/legacy DC OS versions.
 
 **Example:**
 
@@ -212,6 +236,10 @@ Internally, it calls functions such as:
   - `Get-ADSHCGPODefenderASR` — Microsoft Defender Attack Surface Reduction rules.
   - `Get-ADSHCGPOEventForwarding` — event forwarding configuration.
   - `Get-ADSHCGPODelegations` — GPO security filtering & delegation.
+  - `Get-ADSHCGPOInformation` — basic inventory for all GPOs.
+  - `Get-ADSHCGPOEmpty` — detects GPOs with no user/computer settings.
+  - `Get-ADSHCGPOUnlinked` — detects GPOs with no links.
+  - `Get-ADSHCGPOWmiFilterIssues` — WMI filter presence and query sanity checks (fallback to AD query if GroupPolicy cmdlets are missing).
 
 **Example:**
 
@@ -230,6 +258,11 @@ Performs DNS‑related checks for the AD DNS infrastructure.
 Internal function(s):
 
 - `Get-ADSHCDNSZones` — collects DNS zones and configuration from AD‑integrated DNS.
+- `Get-ADSHCDNSZoneTransfers` — flags zones allowing transfer.
+- `Get-ADSHCDNSAgingScavenging` — flags zones without aging/scavenging.
+- `Get-ADSHCDNSDynamicUpdates` — flags zones allowing nonsecure dynamic updates.
+
+`Get-ADDNSCheck` also accepts `-DnsServer` to target a specific DNS server.
 
 **Example:**
 
@@ -244,6 +277,12 @@ Checks Active Directory trusts:
 
 - Trust relationships to other forests/domains.
 - Trust directions and security characteristics (e.g., selective authentication, transitivity).
+
+Internal checks include:
+
+- `Get-ADSHCTrustSIDFiltering` — flags trusts with SID filtering disabled.
+- `Get-ADSHCTrustSelectiveAuth` — flags trusts without selective authentication.
+- `Get-ADSHCTrustTransitivity` — flags risky transitivity settings.
 
 Internal functions live in `Private/AD-TrustChecks.ps1` (not shown in snippet, but implied by naming).
 
@@ -273,6 +312,20 @@ Internal functions include:
 - `Get-ADSHCADCSCAs`  
   - Enumerates Certification Authorities from `CN=Certification Authorities,...`.
   - Collects CA metadata (name, configuration, URLs, etc.).
+
+- **ESC heuristic checks** (based on template/CA ACLs and flags):
+  - `Get-ADSHCADCSESC1` — enrollee supplies subject + client auth template.
+  - `Get-ADSHCADCSESC2` — any‑purpose EKU or no EKU restrictions.
+  - `Get-ADSHCADCSESC3` — enrollment agent templates.
+  - `Get-ADSHCADCSESC4` — risky template ACLs.
+  - `Get-ADSHCADCSESC5` — risky CA object ACLs.
+  - `Get-ADSHCADCSESC6` — subject/SAN supply flags (heuristic).
+  - `Get-ADSHCADCSESC7` — risky CA management permissions (heuristic).
+  - `Get-ADSHCADCSESC8` — web enrollment/NTLM relay exposure (manual review note).
+
+- Additional checks:
+  - `Get-ADSHCADCSNTAuthStore` — NTAuth certificate store contents.
+  - `Get-ADSHCADCSEnrollmentAgents` — enrollment agent templates and key admin members.
 
 The public wrapper `Get-ADADCSCheck` aggregates these into health check results.
 
@@ -424,7 +477,11 @@ New-ADSHCResult -Category 'Backup/Recovery' -Check 'Last AD backup' `
     -Data $null
 ```
 
-So this is designed to be extended with:
+Additional check implemented:
+
+- `Get-ADSHCSystemStateBackup` — inspects Windows Backup event logs for recent system state backups and reports age.
+
+Designed to be extended with:
 
 - Queries against backup software / APIs.
 - Event log analysis for system state/AD backups.
@@ -497,36 +554,64 @@ These helpers keep public functions thin and focused on orchestration.
 
 **File:** `Private/AD-AccountChecks.ps1`
 
-Sample internal functions (partial list):
+All internal functions and purpose:
 
-- `Get-ADSHCUnixPasswords`  
-  - Shown in the snippet:  
-    - If attributes like `msSFU30Password` exist, they are added to the queried properties.
-    - Filters for accounts where Unix‑style password attributes are present.
-    - Produces a `Warning` result with all affected accounts.
-
-- `Get-ADSHCServiceAccounts`  
-  - Collects accounts with `servicePrincipalName` (SPN) attributes, often used to identify service accounts.
-
-Other functions in this file (not fully shown) typically cover:
-
-- Stale or inactive accounts.
-- Accounts with unconstrained/trusted for delegation.
-- Accounts with password never expires, etc.
-- High‑risk password or lockout settings.
+- `Get-ADSHCInactiveAccounts` — enabled users inactive for a threshold (default 90 days).
+- `Get-ADSHCLockedAccounts` — locked out user accounts.
+- `Get-ADSHCPasswordNeverExpires` — users with non‑expiring passwords.
+- `Get-ADSHCPasswordNotRequired` — users not required to have a password.
+- `Get-ADSHCReversibleEncryption` — users with reversible encryption enabled.
+- `Get-ADSHCSIDHistory` — users with SIDHistory set.
+- `Get-ADSHCBadPrimaryGroup` — users with non‑standard primary group.
+- `Get-ADSHCDESEnabled` — users with DES enabled.
+- `Get-ADSHCNotAESEnabled` — users without AES encryption enabled.
+- `Get-ADSHCNoPreAuthRequired` — users without Kerberos pre‑auth.
+- `Get-ADSHCTrustedForDelegation` — users/computers trusted for delegation.
+- `Get-ADSHCDuplicateAccounts` — duplicate DisplayName/SamAccountName/UPN values.
+- `Get-ADSHCSmartcardRequired` — accounts with smartcard requirement.
+- `Get-ADSHCUnixPasswords` — Unix‑style password attributes (`msSFU30Password`, `userPassword`).
+- `Get-ADSHCServiceAccounts` — heuristic service account identification.
+- `Get-ADSHCComputerPasswordAge` — stale computer account password age (>90 days).
+- `Get-ADSHCClusterPasswordAge` — cluster account password age (>180 days).
+- `Get-ADSHCLAPSCoverage` — legacy/new LAPS attribute coverage.
+- `Get-ADSHCPasswordAgeDistribution` — password age distribution for enabled users.
+- `Get-ADSHCLAPSAgeDistribution` — LAPS password age distribution.
+- `Get-ADSHCPrivilegedLastLogonDist` — privileged account last logon distribution.
+- `Get-ADSHCPrivilegedPwdLastSetDist` — privileged password last set distribution.
+- `Get-ADSHCStaleComputers` — stale computer accounts by last logon.
+- `Get-ADSHCSmartcardCoverage` — smartcard requirement coverage summary.
 
 ### Privileged Group & DC Checks
 
-Likely in:
+**Files:**
 
 - `Private/AD-PrivilegedGroupChecks.ps1`
-- `Private/AD-DomainControllerChecks.ps1`
+- `Private/AD-DCChecks.ps1`
 
-Functions here:
+Privileged group functions:
 
-- Enumerate membership and rights of key groups.
-- Check DC configuration against best practices.
-- Flag misconfigurations with appropriate severity.
+- `Get-ADSHCPrivilegedGroupMembership` — enumerates members of privileged groups.
+- `Get-ADSHCPrivilegedExternalMembers` — flags foreign security principals.
+- `Get-ADSHCPrivilegedDisabledMembers` — disabled privileged users.
+- `Get-ADSHCPrivilegedLockedMembers` — locked privileged users.
+- `Get-ADSHCPrivilegedInactiveMembers` — inactive privileged users.
+- `Get-ADSHCPrivilegedPasswordNeverExp` — non‑expiring privileged passwords.
+- `Get-ADSHCPrivilegedCanBeDelegated` — privileged users allowed for delegation.
+- `Get-ADSHCPrivilegedSmartcardRequired` — privileged users without smartcard requirement.
+- `Get-ADSHCProtectedUsersIssues` — Protected Users group membership summary.
+- `Get-ADSHCPrivilegedServiceAccounts` — heuristic service accounts in privileged groups.
+- `Get-ADSHCPrivilegedSPNs` — privileged users with SPNs.
+- `Get-ADSHCAllPrivilegedMembers` — flattened list of all privileged members.
+
+Domain controller functions:
+
+- `Get-ADSHCDCInventory` — DC inventory.
+- `Get-ADSHCDCSecurity` — SMB1/2, spooler, WebClient, LDAP signing checks.
+- `Get-ADSHCDCConfiguration` — DC configuration details (OS, roles, creation, etc.).
+- `Get-ADSHCSysvolDfsrHealth` — SYSVOL/DFSR and SYSVOL share status.
+- `Get-ADSHCTimeSync` — W32Time service state.
+- `Get-ADSHCSecureChannel` — secure channel test (PS remoting required).
+- `Get-ADSHCUnsupportedDCOS` — unsupported/legacy DC OS versions.
 
 ### GPO and GPP Checks
 
@@ -547,6 +632,10 @@ Key functions (as described above):
 - `Get-ADSHCGPODefenderASR`
 - `Get-ADSHCGPOEventForwarding`
 - `Get-ADSHCGPODelegations`
+- `Get-ADSHCGPOInformation`
+- `Get-ADSHCGPOEmpty`
+- `Get-ADSHCGPOUnlinked`
+- `Get-ADSHCGPOWmiFilterIssues`
 
 Each returns a `New-ADSHCResult` object with:
 
@@ -560,6 +649,9 @@ Each returns a `New-ADSHCResult` object with:
 
 - `Get-ADSHCDNSZones`  
   - Uses `Get-DnsServerZone` and related DNS cmdlets to collect zone names, replication scope, and other properties.
+- `Get-ADSHCDNSZoneTransfers` — flags zones allowing zone transfer.
+- `Get-ADSHCDNSAgingScavenging` — flags zones without aging/scavenging.
+- `Get-ADSHCDNSDynamicUpdates` — flags zones allowing nonsecure dynamic updates.
 
 ### AD CS Checks
 
@@ -569,6 +661,16 @@ Already covered above; key functions include:
 
 - `Get-ADSHCADCSTemplates`
 - `Get-ADSHCADCSCAs`
+- `Get-ADSHCADCSESC1`
+- `Get-ADSHCADCSESC2`
+- `Get-ADSHCADCSESC3`
+- `Get-ADSHCADCSESC4`
+- `Get-ADSHCADCSESC5`
+- `Get-ADSHCADCSESC6`
+- `Get-ADSHCADCSESC7`
+- `Get-ADSHCADCSESC8`
+- `Get-ADSHCADCSNTAuthStore`
+- `Get-ADSHCADCSEnrollmentAgents`
 
 These output `Category = 'ADCS'` results with rich data about templates and CAs.
 
@@ -628,6 +730,8 @@ Responsibilities:
 
 - `Get-ADSHCBackupInfo`  
   - Currently a placeholder that informs the user that backup detection is not implemented and should be integrated with your backup solution / event logs.
+- `Get-ADSHCSystemStateBackup`
+  - Reads Windows Backup event logs to estimate last system state backup age.
 
 ---
 
