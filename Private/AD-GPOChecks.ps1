@@ -266,10 +266,24 @@ function Get-ADSHCGPOWmiFilterIssues {
     param()
 
     $gpos = Get-GPO -All
-    $filters = Get-GPWmiFilter -All -ErrorAction SilentlyContinue
+    if (Get-Command -Name Get-GPWmiFilter -ErrorAction SilentlyContinue) {
+        $filters = Get-GPWmiFilter -All -ErrorAction SilentlyContinue
+    } else {
+        try {
+            $domain = Get-ADDomain
+            $wmiBase = "CN=SOM,CN=WMIPolicy,CN=System,$($domain.DistinguishedName)"
+            $filters = Get-ADObject -SearchBase $wmiBase -LDAPFilter '(objectClass=msWMI-Som)' -Properties msWMI-Name,msWMI-Query,msWMI-Author,msWMI-CreationDate
+        } catch {
+            return New-ADSHCResult -Category 'GPO - Management' -Check 'WMI filter issues' `
+                -Severity 'Error' `
+                -Message "Failed to enumerate WMI filters (Get-GPWmiFilter unavailable and AD query failed)." `
+                -Data $_
+        }
+    }
     $filterMap = @{}
     foreach ($f in $filters) {
-        $filterMap[$f.Name] = $f
+        $name = if ($f.Name) { $f.Name } else { $f.'msWMI-Name' }
+        if ($name) { $filterMap[$name] = $f }
     }
 
     $issues = @()
@@ -287,6 +301,7 @@ function Get-ADSHCGPOWmiFilterIssues {
         }
 
         $query = $filterMap[$filterName].Query
+        if (-not $query) { $query = $filterMap[$filterName].'msWMI-Query' }
         if (-not $query -or $query -notmatch '^SELECT\s+') {
             $issues += [PSCustomObject]@{
                 GPO       = $g.DisplayName
