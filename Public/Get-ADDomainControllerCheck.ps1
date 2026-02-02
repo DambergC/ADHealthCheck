@@ -13,6 +13,10 @@ function Get-ADDomainControllerCheck {
     $results += Get-ADSHCDCInventory    @params
     $results += Get-ADSHCDCSecurity     @params
     $results += Get-ADSHCDCConfiguration @params
+    $results += Get-ADSHCSysvolDfsrHealth @params
+    $results += Get-ADSHCTimeSync         @params
+    $results += Get-ADSHCSecureChannel    @params
+    $results += Get-ADSHCUnsupportedDCOS  @params
 
     return $results
 }

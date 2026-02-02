@@ -158,3 +158,122 @@ function Get-ADSHCDCConfiguration {
 
     return $results
 }
+
+function Get-ADSHCSysvolDfsrHealth {
+    [CmdletBinding()]
+    param(
+        [string] $Server
+    )
+
+    $dcParams = @{ Filter = "*" }
+    if ($Server) { $dcParams['Server'] = $Server }
+
+    $dcs = Get-ADDomainController @dcParams
+    $results = @()
+
+    foreach ($dc in $dcs) {
+        $computer = $dc.HostName
+
+        $dfsr = Get-Service -Name DFSR -ComputerName $computer -ErrorAction SilentlyContinue
+        $shares = Get-CimInstance -ClassName Win32_Share -ComputerName $computer -ErrorAction SilentlyContinue
+        $sysvolShare = $shares | Where-Object { $_.Name -eq 'SYSVOL' }
+
+        $sev = if (-not $dfsr -or $dfsr.Status -ne 'Running' -or -not $sysvolShare) { 'Warning' } else { 'Info' }
+        $results += New-ADSHCResult -Category 'Domain Controllers' -Check 'SYSVOL/DFSR health' `
+            -Severity $sev `
+            -Message "DC ${computer}: DFSR=$($dfsr.Status), SYSVOL share present=$($null -ne $sysvolShare)." `
+            -Data ([PSCustomObject]@{ DFSR = $dfsr; SYSVOL = $sysvolShare })
+    }
+
+    return $results
+}
+
+function Get-ADSHCTimeSync {
+    [CmdletBinding()]
+    param(
+        [string] $Server
+    )
+
+    $dcParams = @{ Filter = "*" }
+    if ($Server) { $dcParams['Server'] = $Server }
+
+    $dcs = Get-ADDomainController @dcParams
+    $results = @()
+
+    foreach ($dc in $dcs) {
+        $computer = $dc.HostName
+        $svc = Get-Service -Name W32Time -ComputerName $computer -ErrorAction SilentlyContinue
+
+        $sev = if (-not $svc -or $svc.Status -ne 'Running') { 'Warning' } else { 'Info' }
+        $results += New-ADSHCResult -Category 'Domain Controllers' -Check 'Time sync' `
+            -Severity $sev `
+            -Message "DC ${computer}: W32Time service state = $($svc.Status)." `
+            -Data $svc
+    }
+
+    return $results
+}
+
+function Get-ADSHCSecureChannel {
+    [CmdletBinding()]
+    param(
+        [string] $Server
+    )
+
+    $dcParams = @{ Filter = "*" }
+    if ($Server) { $dcParams['Server'] = $Server }
+
+    $dcs = Get-ADDomainController @dcParams
+    $results = @()
+
+    foreach ($dc in $dcs) {
+        $computer = $dc.HostName
+
+        try {
+            $ok = Invoke-Command -ComputerName $computer -ScriptBlock { Test-ComputerSecureChannel -Verbose:$false } -ErrorAction Stop
+            $sev = if ($ok) { 'Info' } else { 'Warning' }
+            $results += New-ADSHCResult -Category 'Domain Controllers' -Check 'Secure channel' `
+                -Severity $sev `
+                -Message "DC ${computer}: secure channel test = $ok." `
+                -Data $ok
+        } catch {
+            $results += New-ADSHCResult -Category 'Domain Controllers' -Check 'Secure channel' `
+                -Severity 'Error' `
+                -Message "DC ${computer}: secure channel test failed (PS remoting)." `
+                -Data $_
+        }
+    }
+
+    return $results
+}
+
+function Get-ADSHCUnsupportedDCOS {
+    [CmdletBinding()]
+    param(
+        [string] $Server
+    )
+
+    $dcParams = @{ Filter = "*" }
+    if ($Server) { $dcParams['Server'] = $Server }
+
+    $dcs = Get-ADDomainController @dcParams
+    $unsupported = @()
+
+    foreach ($dc in $dcs) {
+        $compParams = @{ Identity = $dc.ComputerObjectDN; Properties = 'OperatingSystem' }
+        if ($Server) { $compParams['Server'] = $Server }
+
+        $comp = Get-ADComputer @compParams
+        if ($comp.OperatingSystem -notmatch 'Windows Server 2016|Windows Server 2019|Windows Server 2022|Windows Server 2025') {
+            $unsupported += [PSCustomObject]@{
+                Name            = $dc.HostName
+                OperatingSystem = $comp.OperatingSystem
+            }
+        }
+    }
+
+    New-ADSHCResult -Category 'Domain Controllers' -Check 'Unsupported OS' `
+        -Severity $(if ($unsupported.Count -gt 0) { 'Warning' } else { 'Info' }) `
+        -Message "Found $($unsupported.Count) domain controllers on unsupported or legacy OS versions." `
+        -Data $unsupported
+}

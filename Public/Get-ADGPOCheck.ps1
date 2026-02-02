@@ -26,6 +26,9 @@ function Get-ADGPOCheck {
 
     $results += Get-ADSHCGPODelegations
     $results += Get-ADSHCGPOInformation
+    $results += Get-ADSHCGPOEmpty
+    $results += Get-ADSHCGPOUnlinked
+    $results += Get-ADSHCGPOWmiFilterIssues
 
     return $results
 }

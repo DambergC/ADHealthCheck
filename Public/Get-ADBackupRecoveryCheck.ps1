@@ -6,5 +6,6 @@ function Get-ADBackupRecoveryCheck {
 
     $results = @()
     $results += Get-ADSHCBackupInfo
+    $results += Get-ADSHCSystemStateBackup
     return $results
 }

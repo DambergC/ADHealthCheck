@@ -13,12 +13,14 @@ function Get-ADPrivilegedGroupCheck {
     $results += Get-ADSHCPrivilegedGroupMembership   @params
     $results += Get-ADSHCPrivilegedExternalMembers   @params
     $results += Get-ADSHCPrivilegedDisabledMembers   @params
+    $results += Get-ADSHCPrivilegedLockedMembers     @params
     $results += Get-ADSHCPrivilegedInactiveMembers   @params
     $results += Get-ADSHCPrivilegedPasswordNeverExp  @params
     $results += Get-ADSHCPrivilegedCanBeDelegated    @params
     $results += Get-ADSHCPrivilegedSmartcardRequired @params
     $results += Get-ADSHCProtectedUsersIssues        @params
     $results += Get-ADSHCPrivilegedServiceAccounts   @params
+    $results += Get-ADSHCPrivilegedSPNs              @params
     $results += Get-ADSHCAllPrivilegedMembers        @params
 
     return $results

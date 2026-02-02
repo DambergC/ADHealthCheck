@@ -661,3 +661,58 @@ function Get-ADSHCPrivilegedPwdLastSetDist {
         -Message "Calculated password last set distribution for $($users.Count) privileged accounts." `
         -Data $data
 }
+
+function Get-ADSHCStaleComputers {
+    [CmdletBinding()]
+    param(
+        [string] $Server,
+        [int]    $InactiveDays = 90
+    )
+
+    $adParams = @{
+        Filter     = "Enabled -eq 'True'"
+        Properties = @('LastLogonDate','OperatingSystem')
+    }
+    if ($Server) { $adParams['Server'] = $Server }
+
+    $computers = Get-ADComputer @adParams
+    $threshold = (Get-Date).AddDays(-$InactiveDays)
+
+    $stale = $computers | Where-Object {
+        -not $_.LastLogonDate -or $_.LastLogonDate -lt $threshold
+    }
+
+    New-ADSHCResult -Category 'Account Security' -Check 'Stale computers' `
+        -Severity 'Warning' `
+        -Message "Found $($stale.Count) stale computers (no logon in $InactiveDays+ days)." `
+        -Data $stale
+}
+
+function Get-ADSHCSmartcardCoverage {
+    [CmdletBinding()]
+    param(
+        [string] $Server
+    )
+
+    $adParams = @{
+        Filter     = "Enabled -eq 'True'"
+        Properties = 'userAccountControl'
+    }
+    if ($Server) { $adParams['Server'] = $Server }
+
+    $users = Get-ADUser @adParams
+    $required = $users | Where-Object { $_.userAccountControl -band 0x40000 }
+
+    $data = [PSCustomObject]@{
+        TotalEnabled        = $users.Count
+        SmartcardRequired   = $required.Count
+        NotRequired         = $users.Count - $required.Count
+    }
+
+    $sev = if ($data.NotRequired -gt 0) { 'Warning' } else { 'Info' }
+
+    New-ADSHCResult -Category 'Account Security' -Check 'Smartcard coverage' `
+        -Severity $sev `
+        -Message "Smartcard required for $($data.SmartcardRequired) of $($data.TotalEnabled) enabled accounts." `
+        -Data $data
+}

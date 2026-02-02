@@ -11,6 +11,9 @@ function Get-ADTrustCheck {
 
     $results = @()
     $results += Get-ADSHCTrusts @params
+    $results += Get-ADSHCTrustSIDFiltering @params
+    $results += Get-ADSHCTrustSelectiveAuth @params
+    $results += Get-ADSHCTrustTransitivity @params
 
     return $results
 }

@@ -33,12 +33,16 @@ function Get-ADAccountSecurityCheck {
     $results += Get-ADSHCComputerPasswordAge    @params
     $results += Get-ADSHCClusterPasswordAge     @params
     $results += Get-ADSHCLAPSCoverage           @params
+    $results += Get-ADSHCStaleComputers          @params -InactiveDays $InactiveDays
 
     # Password distributions
     $results += Get-ADSHCPasswordAgeDistribution   @params
     $results += Get-ADSHCLAPSAgeDistribution       @params
     $results += Get-ADSHCPrivilegedLastLogonDist   @params
     $results += Get-ADSHCPrivilegedPwdLastSetDist  @params
+
+    # Coverage / hygiene
+    $results += Get-ADSHCSmartcardCoverage         @params
 
     return $results
 }

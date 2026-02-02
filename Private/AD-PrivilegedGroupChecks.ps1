@@ -377,3 +377,84 @@ function Get-ADSHCAllPrivilegedMembers {
         -Message "Enumerated all members of privileged groups ($($data.Count) entries)." `
         -Data $data
 }
+
+function Get-ADSHCPrivilegedLockedMembers {
+    [CmdletBinding()]
+    param(
+        [string] $Server
+    )
+
+    $locked = @()
+
+    foreach ($groupName in $script:PrivilegedGroups) {
+        $gParams = @{ Identity = $groupName; ErrorAction = 'SilentlyContinue' }
+        if ($Server) { $gParams['Server'] = $Server }
+
+        $group = Get-ADGroup @gParams
+        if (-not $group) { continue }
+
+        $mParams = @{ Identity = $group; Recursive = $true; ErrorAction = 'SilentlyContinue' }
+        if ($Server) { $mParams['Server'] = $Server }
+
+        $members = Get-ADGroupMember @mParams | Where-Object { $_.objectClass -eq 'user' }
+
+        foreach ($m in $members) {
+            $uParams = @{ Identity = $m.DistinguishedName; Properties = 'LockedOut' }
+            if ($Server) { $uParams['Server'] = $Server }
+
+            $u = Get-ADUser @uParams
+            if ($u.LockedOut) {
+                $locked += [PSCustomObject]@{
+                    Group = $groupName
+                    User  = $u
+                }
+            }
+        }
+    }
+
+    New-ADSHCResult -Category 'Privileged Groups' -Check 'Locked members' `
+        -Severity 'Warning' `
+        -Message "Found $($locked.Count) locked users in privileged groups." `
+        -Data $locked
+}
+
+function Get-ADSHCPrivilegedSPNs {
+    [CmdletBinding()]
+    param(
+        [string] $Server
+    )
+
+    $spnUsers = @()
+
+    foreach ($groupName in $script:PrivilegedGroups) {
+        $gParams = @{ Identity = $groupName; ErrorAction = 'SilentlyContinue' }
+        if ($Server) { $gParams['Server'] = $Server }
+
+        $group = Get-ADGroup @gParams
+        if (-not $group) { continue }
+
+        $mParams = @{ Identity = $group; Recursive = $true; ErrorAction = 'SilentlyContinue' }
+        if ($Server) { $mParams['Server'] = $Server }
+
+        $members = Get-ADGroupMember @mParams | Where-Object { $_.objectClass -eq 'user' }
+
+        foreach ($m in $members) {
+            $uParams = @{ Identity = $m.DistinguishedName; Properties = @('servicePrincipalName','Enabled') }
+            if ($Server) { $uParams['Server'] = $Server }
+
+            $u = Get-ADUser @uParams
+            if ($u.Enabled -and $u.servicePrincipalName -and $u.servicePrincipalName.Count -gt 0) {
+                $spnUsers += [PSCustomObject]@{
+                    Group = $groupName
+                    User  = $u
+                    SPNs  = $u.servicePrincipalName
+                }
+            }
+        }
+    }
+
+    New-ADSHCResult -Category 'Privileged Groups' -Check 'Privileged SPNs' `
+        -Severity 'Warning' `
+        -Message "Found $($spnUsers.Count) privileged users with SPNs (potential kerberoast exposure)." `
+        -Data $spnUsers
+}

@@ -210,3 +210,95 @@ function Get-ADSHCGPOInformation {
         -Message "Collected information on $($gpos.Count) GPOs." `
         -Data $gpos
 }
+
+function Get-ADSHCGPOEmpty {
+    [CmdletBinding()]
+    param()
+
+    $gpos = Get-GPO -All
+    $empty = @()
+
+    foreach ($g in $gpos) {
+        $report = Get-GPOReport -Guid $g.Id -ReportType Xml
+        $xml = [xml]$report
+
+        $userExt = $xml.GPO.User.ExtensionData
+        $compExt = $xml.GPO.Computer.ExtensionData
+
+        $userHas = $userExt -and $userExt.ChildNodes.Count -gt 0
+        $compHas = $compExt -and $compExt.ChildNodes.Count -gt 0
+
+        if (-not $userHas -and -not $compHas) {
+            $empty += $g
+        }
+    }
+
+    New-ADSHCResult -Category 'GPO - Management' -Check 'Empty GPOs' `
+        -Severity $(if ($empty.Count -gt 0) { 'Warning' } else { 'Info' }) `
+        -Message "Found $($empty.Count) GPOs with no user or computer settings." `
+        -Data $empty
+}
+
+function Get-ADSHCGPOUnlinked {
+    [CmdletBinding()]
+    param()
+
+    $gpos = Get-GPO -All
+    $unlinked = @()
+
+    foreach ($g in $gpos) {
+        $report = Get-GPOReport -Guid $g.Id -ReportType Xml
+        $xml = [xml]$report
+
+        if (-not $xml.GPO.LinksTo) {
+            $unlinked += $g
+        }
+    }
+
+    New-ADSHCResult -Category 'GPO - Management' -Check 'Unlinked GPOs' `
+        -Severity $(if ($unlinked.Count -gt 0) { 'Warning' } else { 'Info' }) `
+        -Message "Found $($unlinked.Count) GPOs with no links." `
+        -Data $unlinked
+}
+
+function Get-ADSHCGPOWmiFilterIssues {
+    [CmdletBinding()]
+    param()
+
+    $gpos = Get-GPO -All
+    $filters = Get-GPWmiFilter -All -ErrorAction SilentlyContinue
+    $filterMap = @{}
+    foreach ($f in $filters) {
+        $filterMap[$f.Name] = $f
+    }
+
+    $issues = @()
+    foreach ($g in $gpos) {
+        if (-not $g.WmiFilter) { continue }
+
+        $filterName = $g.WmiFilter.Name
+        if (-not $filterMap.ContainsKey($filterName)) {
+            $issues += [PSCustomObject]@{
+                GPO       = $g.DisplayName
+                Issue     = 'Missing WMI filter'
+                FilterRef = $filterName
+            }
+            continue
+        }
+
+        $query = $filterMap[$filterName].Query
+        if (-not $query -or $query -notmatch '^SELECT\s+') {
+            $issues += [PSCustomObject]@{
+                GPO       = $g.DisplayName
+                Issue     = 'Suspicious WMI filter query'
+                FilterRef = $filterName
+                Query     = $query
+            }
+        }
+    }
+
+    New-ADSHCResult -Category 'GPO - Management' -Check 'WMI filter issues' `
+        -Severity $(if ($issues.Count -gt 0) { 'Warning' } else { 'Info' }) `
+        -Message "Found $($issues.Count) GPOs with WMI filter issues." `
+        -Data $issues
+}

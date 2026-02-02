@@ -24,7 +24,10 @@ function Get-ADDNSCheck {
     }
 
     $results = @()
-    $results += Get-ADSHCDNSZones @params
+    $results += Get-ADSHCDNSZones           @params
+    $results += Get-ADSHCDNSZoneTransfers   @params
+    $results += Get-ADSHCDNSAgingScavenging @params
+    $results += Get-ADSHCDNSDynamicUpdates  @params
 
     return $results
 }
