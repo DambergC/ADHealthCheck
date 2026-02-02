@@ -1,8 +1,20 @@
 function Get-ADSHCDNSZones {
     [CmdletBinding()]
-    param()
+    param(
+        [string] $Server
+    )
 
-    $zones = Get-DnsServerZone -ErrorAction SilentlyContinue
+    $dnsParams = @{ ErrorAction = 'Stop' }
+    if ($Server) { $dnsParams['ComputerName'] = $Server }
+
+    try {
+        $zones = Get-DnsServerZone @dnsParams
+    } catch {
+        return New-ADSHCResult -Category 'DNS' -Check 'DNS zones' `
+            -Severity 'Error' `
+            -Message "Failed to enumerate DNS zones from server '$Server'. Ensure it is a DNS server and RPC is reachable." `
+            -Data $_
+    }
 
     $data = foreach ($z in $zones) {
         [PSCustomObject]@{

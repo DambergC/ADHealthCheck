@@ -4,7 +4,11 @@ function Get-ADSHCOSInventory {
         [string] $Server
     )
 
-    $computers = Get-ADComputer -Filter "*" -Server $Server -Properties OperatingSystem,OperatingSystemVersion
+    if ($Server) {
+        $computers = Get-ADComputer -Filter "*" -Server $Server -Properties OperatingSystem,OperatingSystemVersion
+    } else {
+        $computers = Get-ADComputer -Filter "*" -Properties OperatingSystem,OperatingSystemVersion
+    }
     $grouped = $computers | Group-Object -Property OperatingSystem,OperatingSystemVersion | ForEach-Object {
         [PSCustomObject]@{
             OperatingSystem        = $_.Group[0].OperatingSystem

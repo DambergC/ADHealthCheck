@@ -4,7 +4,11 @@ function Get-ADSHCLoginScripts {
         [string] $Server
     )
 
-    $users = Get-ADUser -Filter "scriptPath -like '*'" -Server $Server -Properties scriptPath
+    if ($Server) {
+        $users = Get-ADUser -Filter "scriptPath -like '*'" -Server $Server -Properties scriptPath
+    } else {
+        $users = Get-ADUser -Filter "scriptPath -like '*'" -Properties scriptPath
+    }
     $grouped = $users | Group-Object -Property scriptPath | ForEach-Object {
         [PSCustomObject]@{
             ScriptPath = $_.Name

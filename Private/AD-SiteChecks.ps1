@@ -1,9 +1,14 @@
 function Get-ADSHCSites {
     [CmdletBinding()]
-    param()
+    param(
+        [string] $Server
+    )
 
-    $sites    = Get-ADReplicationSite -Filter *
-    $subnets  = Get-ADReplicationSubnet -Filter *
+    $adParams = @{ Filter = '*' }
+    if ($Server) { $adParams['Server'] = $Server }
+
+    $sites    = Get-ADReplicationSite @adParams
+    $subnets  = Get-ADReplicationSubnet @adParams
 
     $data = [PSCustomObject]@{
         Sites   = $sites
