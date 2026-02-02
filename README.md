@@ -790,4 +790,3 @@ To add a new check:
 
 ---
 
-If you’d like, I can also generate a shorter, “user‑facing” README variant focused on installation and common usage, and keep this function catalog as a separate `FUNCTIONS.md`.
